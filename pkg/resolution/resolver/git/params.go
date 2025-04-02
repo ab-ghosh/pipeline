@@ -45,4 +45,6 @@ const (
 	ServerURLParam string = "serverURL"
 	// ConfigKeyParam is an optional string to provid which scm configuration to use from git resolver configmap
 	ConfigKeyParam string = "configKey"
+	// SshKeyParam is used to specify the SSH private key for cloning repositories over SSH.
+	SshKeyParam string = "sshKey"
 )

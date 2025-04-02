@@ -66,6 +66,7 @@ type ScmConfig struct {
 	APISecretName      string `json:"api-token-secret-name"`
 	APISecretKey       string `json:"api-token-secret-key"`
 	APISecretNamespace string `json:"api-token-secret-namespace"`
+	SSHKey             string `json:"ssh-key"`
 }
 
 func GetGitResolverConfig(ctx context.Context) (GitResolverConfig, error) {

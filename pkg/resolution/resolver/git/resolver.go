@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"io"
 	"os"
 	"regexp"
@@ -196,35 +197,53 @@ func (g *GitResolver) ResolveGitClone(ctx context.Context) (framework.ResolvedRe
 	}
 
 	cloneOpts := &git.CloneOptions{
-		URL: repo,
+		URL:      repo,
+		Progress: os.Stdout,
 	}
-
-	secretRef := &secretCacheKey{
-		name: g.Params[GitTokenParam],
-		key:  g.Params[GitTokenKeyParam],
-	}
-	if secretRef.name != "" {
-		if secretRef.key == "" {
-			secretRef.key = DefaultTokenKeyParam
-		}
-		secretRef.ns = common.RequestNamespace(ctx)
-	} else {
-		secretRef = nil
-	}
-
 	auth := plumbTransport.AuthMethod(nil)
-	if secretRef != nil {
-		gitToken, err := g.getAPIToken(ctx, secretRef, GitTokenKeyParam)
-		if err != nil {
-			return nil, err
-		}
-		auth = &http.BasicAuth{
-			Username: "git",
-			Password: string(gitToken),
-		}
-		cloneOpts.Auth = auth
-	}
+	if strings.HasPrefix(repo, "git@") || strings.HasPrefix(repo, "ssh://") {
+		privateKeyFile := g.Params[SshKeyParam]
 
+		// Fetch the SSH key from the resolver config
+		scmConfig, err := GetGitResolverConfig(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get Git Resolver Config: %w", err)
+		}
+
+		privateKeyFile = scmConfig["default"].SSHKey
+
+		publicKeys, err := ssh.NewPublicKeysFromFile("git", privateKeyFile, "")
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate SSH public keys: %w", err)
+		}
+		cloneOpts.Auth = publicKeys
+	} else {
+
+		secretRef := &secretCacheKey{
+			name: g.Params[GitTokenParam],
+			key:  g.Params[GitTokenKeyParam],
+		}
+		if secretRef.name != "" {
+			if secretRef.key == "" {
+				secretRef.key = DefaultTokenKeyParam
+			}
+			secretRef.ns = common.RequestNamespace(ctx)
+		} else {
+			secretRef = nil
+		}
+
+		if secretRef != nil {
+			gitToken, err := g.getAPIToken(ctx, secretRef, GitTokenKeyParam)
+			if err != nil {
+				return nil, err
+			}
+			auth = &http.BasicAuth{
+				Username: "git",
+				Password: string(gitToken),
+			}
+			cloneOpts.Auth = auth
+		}
+	}
 	filesystem := memfs.New()
 	repository, err := git.Clone(memory.NewStorage(), filesystem, cloneOpts)
 	if err != nil {
