@@ -1,0 +1,70 @@
+# ==============================================================================
+# Pod Eviction Resilience using `retries`
+# ==============================================================================
+#
+# When a pod is evicted or deleted, the TaskRun is permanently marked Failed
+# (step exits with code 255). The TaskRun reconciler does NOT recreate the pod.
+#
+# Using `retries` on the PipelineTask tells the PipelineRun controller to create
+# a brand new TaskRun when one fails, giving the task another chance to succeed.
+#
+# HOW TO TEST:
+#   1. Apply resources:
+#        kubectl apply -f reproduce-premature-failure.yaml
+#
+#   2. Wait for task-a's pod to start running:
+#        kubectl get pods -w -l tekton.dev/pipelineRun=repro-premature-failure
+#
+#   3. Delete the pod (simulating eviction):
+#        POD=$(kubectl get pod -l tekton.dev/pipelineTask=task-a \
+#              -l tekton.dev/pipelineRun=repro-premature-failure \
+#              -o jsonpath='{.items[0].metadata.name}')
+#        kubectl delete pod $POD --grace-period=0
+#
+#   4. Watch the PipelineRun:
+#        kubectl get pipelinerun repro-premature-failure -w
+#
+#   WITHOUT retries: PipelineRun goes Failed permanently
+#   WITH retries:    TaskRun-A fails, retry creates new TaskRun, task-b runs, Succeeded
+#
+# ==============================================================================
+---
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: repro-premature-failure-pipeline
+spec:
+  tasks:
+    # task-a: runs long enough for you to manually evict its pod
+    - name: task-a
+      retries: 2    # Retry up to 2 times on failure (handles pod eviction)
+      taskSpec:
+        steps:
+          - name: work
+            image: alpine:3.19
+            script: |
+              echo "task-a: started at $(date)"
+              echo "task-a: sleeping for 30s (delete my pod now to simulate eviction)"
+              sleep 30
+              echo "task-a: completed at $(date)"
+
+    # task-b: depends on task-a, should run after task-a succeeds
+    - name: task-b
+      taskSpec:
+        steps:
+          - name: work
+            image: alpine:3.19
+            script: |
+              echo "task-b: started at $(date)"
+              echo "task-b: if you see this, the pipeline survived the eviction!"
+              echo "task-b: completed at $(date)"
+---
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: repro-premature-failure
+spec:
+  pipelineRef:
+    name: repro-premature-failure-pipeline
+  taskRunTemplate:
+    serviceAccountName: default

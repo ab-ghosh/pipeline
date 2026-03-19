@@ -1,0 +1,63 @@
+# Create namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: test-throttle
+---
+# ResourceQuota that limits running pods
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: test-quota
+  namespace: test-throttle
+spec:
+  hard:
+    pods: "1"  # Only allow 1 pod
+---
+# Task with proper resource requests
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: test-task
+  namespace: test-throttle
+spec:
+  steps:
+  - name: echo
+    image: busybox
+    computeResources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+    script: |
+      echo "Running task"
+      sleep 100  # Keep running for 10 minutes
+---
+# First TaskRun - should start
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: taskrun-11
+  namespace: test-throttle
+spec:
+  taskRef:
+    name: test-task
+---
+# Second TaskRun - should be throttled (pending)
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: taskrun-22
+  namespace: test-throttle
+spec:
+  taskRef:
+    name: test-task
+---
+# Third TaskRun - should be throttled (pending)
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: taskrun-33
+  namespace: test-throttle
+spec:
+  taskRef:
+    name: test-task

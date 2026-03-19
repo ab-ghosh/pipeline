@@ -1,0 +1,40 @@
+# taskrun.yaml
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: test-task
+  namespace: test-throttle
+spec:
+  steps:
+  - name: echo
+    image: busybox
+    script: |
+      echo "Running"
+      sleep 300  # Keep running for 5 minutes
+---
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: taskrun-1
+  namespace: test-throttle
+spec:
+  taskRef:
+    name: test-task
+---
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: taskrun-2
+  namespace: test-throttle
+spec:
+  taskRef:
+    name: test-task
+---
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: taskrun-3  # This one should be throttled
+  namespace: test-throttle
+spec:
+  taskRef:
+    name: test-task

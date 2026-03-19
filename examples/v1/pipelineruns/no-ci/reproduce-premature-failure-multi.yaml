@@ -1,0 +1,83 @@
+# ==============================================================================
+# Variant: Multi-task pipeline (higher chance of triggering the race)
+# ==============================================================================
+#
+# This pipeline has 4 sequential tasks. Evicting the pod of any running task
+# should NOT cause the PipelineRun to fail permanently.
+#
+# This variant is more realistic -- real pipelines have many tasks, and eviction
+# of an early task causes all downstream tasks to be skipped (StoppingSkip),
+# making s.Incomplete == 0 almost immediately.
+#
+# HOW TO USE:
+#   kubectl apply -f reproduce-premature-failure-multi.yaml
+#
+#   # Wait for build-step to start
+#   kubectl get pods -w -l tekton.dev/pipelineRun=repro-multi-task
+#
+#   # Evict the build-step pod
+#   POD=$(kubectl get pod -l tekton.dev/pipelineTask=build-step \
+#         -l tekton.dev/pipelineRun=repro-multi-task \
+#         -o jsonpath='{.items[0].metadata.name}')
+#   kubectl delete pod $POD --grace-period=0
+#
+#   # Watch -- without fix, this goes Failed; with fix, it recovers
+#   kubectl get pipelinerun repro-multi-task -w
+#
+# ==============================================================================
+---
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: repro-multi-task
+spec:
+  pipelineSpec:
+    tasks:
+      - name: build-step
+        taskSpec:
+          results:
+            - name: commit-sha
+              description: A fake commit SHA to pass downstream
+          steps:
+            - name: build
+              image: alpine:3.19
+              script: |
+                echo "build-step: compiling... (delete my pod now)"
+                sleep 60
+                echo -n "abc123" > $(results.commit-sha.path)
+                echo "build-step: done"
+
+      - name: test-step
+        runAfter: ["build-step"]
+        taskSpec:
+          steps:
+            - name: test
+              image: alpine:3.19
+              script: |
+                echo "test-step: running tests..."
+                sleep 10
+                echo "test-step: all tests passed"
+
+      - name: scan-step
+        runAfter: ["test-step"]
+        taskSpec:
+          steps:
+            - name: scan
+              image: alpine:3.19
+              script: |
+                echo "scan-step: scanning for vulnerabilities..."
+                sleep 5
+                echo "scan-step: clean"
+
+      - name: deploy-step
+        runAfter: ["scan-step"]
+        taskSpec:
+          steps:
+            - name: deploy
+              image: alpine:3.19
+              script: |
+                echo "deploy-step: deploying..."
+                sleep 5
+                echo "deploy-step: deployed successfully"
+  taskRunTemplate:
+    serviceAccountName: default

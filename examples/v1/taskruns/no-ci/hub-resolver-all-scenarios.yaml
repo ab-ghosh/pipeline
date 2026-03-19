@@ -1,0 +1,867 @@
+# =============================================================================
+# Hub Resolver — All Test Scenarios
+# =============================================================================
+#
+# Apply:   kubectl apply -f hub-resolver-all-scenarios.yaml
+# Cleanup: kubectl delete taskrun -l test-suite=hub-resolver-scenarios
+#
+# Prerequisites:
+#   - Tekton Pipelines v0.41.0+ with resolvers installed
+#   - enable-hub-resolver = true in resolvers-feature-flags ConfigMap
+#   - Beta features enabled
+#
+# Some scenarios require specific ConfigMap or env var setup — see comments.
+# Replace resource names/versions with ones available in your hub instance.
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# 1a. Artifact Hub + task + full semver
+# Expected: resolves git-clone v0.9.0 from Artifact Hub and runs successfully
+# ---------------------------------------------------------------------------
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: hub-1a-artifact-task-semver-
+  labels:
+    test-suite: hub-resolver-scenarios
+    test-scenario: "1a"
+spec:
+  workspaces:
+    - name: output
+      emptyDir: {}
+  podTemplate:
+    securityContext:
+      fsGroup: 65532
+  params:
+    - name: url
+      value: https://github.com/tektoncd/pipeline.git
+    - name: revision
+      value: main
+  taskRef:
+    resolver: hub
+    params:
+      - name: type
+        value: artifact
+      - name: kind
+        value: task
+      - name: name
+        value: git-clone
+      - name: version
+        value: "0.9.0"
+---
+# ---------------------------------------------------------------------------
+# 1b. Artifact Hub + task + simplified semver (resolver appends ".0")
+# Expected: resolver converts "0.9" to "0.9.0" and runs successfully
+# ---------------------------------------------------------------------------
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: hub-1b-artifact-simplified-semver-
+  labels:
+    test-suite: hub-resolver-scenarios
+    test-scenario: "1b"
+spec:
+  workspaces:
+    - name: output
+      emptyDir: {}
+  podTemplate:
+    securityContext:
+      fsGroup: 65532
+  params:
+    - name: url
+      value: https://github.com/tektoncd/pipeline.git
+    - name: revision
+      value: main
+  taskRef:
+    resolver: hub
+    params:
+      - name: type
+        value: artifact
+      - name: kind
+        value: task
+      - name: name
+        value: git-clone
+      - name: version
+        value: "0.9"
+---
+# ---------------------------------------------------------------------------
+# 1c. Tekton Hub + task + simplified semver
+# Pre-req: TEKTON_HUB_API env var set or tekton-hub-urls in ConfigMap
+# Expected: resolves from Tekton Hub and runs successfully
+# ---------------------------------------------------------------------------
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: hub-1c-tekton-task-simplified-
+  labels:
+    test-suite: hub-resolver-scenarios
+    test-scenario: "1c"
+spec:
+  workspaces:
+    - name: output
+      emptyDir: {}
+  podTemplate:
+    securityContext:
+      fsGroup: 65532
+  params:
+    - name: url
+      value: https://github.com/tektoncd/pipeline.git
+    - name: revision
+      value: main
+  taskRef:
+    resolver: hub
+    params:
+      - name: type
+        value: tekton
+      - name: kind
+        value: task
+      - name: name
+        value: git-clone
+      - name: version
+        value: "0.9"
+---
+# ---------------------------------------------------------------------------
+# 1d. Tekton Hub + task + full semver (resolver truncates to x.y)
+# Pre-req: TEKTON_HUB_API env var set or tekton-hub-urls in ConfigMap
+# Expected: resolver converts "0.9.0" to "0.9" for Tekton Hub API
+# ---------------------------------------------------------------------------
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: hub-1d-tekton-task-full-semver-
+  labels:
+    test-suite: hub-resolver-scenarios
+    test-scenario: "1d"
+spec:
+  workspaces:
+    - name: output
+      emptyDir: {}
+  podTemplate:
+    securityContext:
+      fsGroup: 65532
+  params:
+    - name: url
+      value: https://github.com/tektoncd/pipeline.git
+    - name: revision
+      value: main
+  taskRef:
+    resolver: hub
+    params:
+      - name: type
+        value: tekton
+      - name: kind
+        value: task
+      - name: name
+        value: git-clone
+      - name: version
+        value: "0.9.0"
+---
+# ---------------------------------------------------------------------------
+# 1e. Defaults only (type and kind omitted — uses ConfigMap defaults)
+# Expected: uses default-type=artifact, default-kind=task and runs
+# ---------------------------------------------------------------------------
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: hub-1e-defaults-only-
+  labels:
+    test-suite: hub-resolver-scenarios
+    test-scenario: "1e"
+spec:
+  workspaces:
+    - name: output
+      emptyDir: {}
+  podTemplate:
+    securityContext:
+      fsGroup: 65532
+  params:
+    - name: url
+      value: https://github.com/tektoncd/pipeline.git
+    - name: revision
+      value: main
+  taskRef:
+    resolver: hub
+    params:
+      - name: name
+        value: git-clone
+      - name: version
+        value: "0.9.0"
+---
+# ---------------------------------------------------------------------------
+# 1f. Custom catalog name
+# Expected: uses specified catalog instead of ConfigMap default
+# ---------------------------------------------------------------------------
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: hub-1f-custom-catalog-
+  labels:
+    test-suite: hub-resolver-scenarios
+    test-scenario: "1f"
+spec:
+  workspaces:
+    - name: output
+      emptyDir: {}
+  podTemplate:
+    securityContext:
+      fsGroup: 65532
+  params:
+    - name: url
+      value: https://github.com/tektoncd/pipeline.git
+    - name: revision
+      value: main
+  taskRef:
+    resolver: hub
+    params:
+      - name: type
+        value: artifact
+      - name: kind
+        value: task
+      - name: catalog
+        value: tekton-catalog-tasks
+      - name: name
+        value: git-clone
+      - name: version
+        value: "0.9.0"
+---
+# ---------------------------------------------------------------------------
+# 2a. url param overrides Artifact Hub default
+# Expected: request goes to the url param endpoint, NOT the default
+# ---------------------------------------------------------------------------
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: hub-2a-url-override-artifact-
+  labels:
+    test-suite: hub-resolver-scenarios
+    test-scenario: "2a"
+spec:
+  workspaces:
+    - name: output
+      emptyDir: {}
+  podTemplate:
+    securityContext:
+      fsGroup: 65532
+  params:
+    - name: url
+      value: https://github.com/tektoncd/pipeline.git
+    - name: revision
+      value: main
+  taskRef:
+    resolver: hub
+    params:
+      - name: type
+        value: artifact
+      - name: kind
+        value: task
+      - name: name
+        value: git-clone
+      - name: version
+        value: "0.9.0"
+      - name: url
+        value: https://artifacthub.io
+---
+# ---------------------------------------------------------------------------
+# 2b. url param overrides Tekton Hub default
+# Pre-req: TEKTON_HUB_API env var set or tekton-hub-urls in ConfigMap
+# Expected: request goes to url param endpoint, NOT TEKTON_HUB_API
+# NOTE: api.hub.tekton.dev is deprecated and may not resolve; this tests
+#       that the url param is used rather than any default.
+# ---------------------------------------------------------------------------
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: hub-2b-url-override-tekton-
+  labels:
+    test-suite: hub-resolver-scenarios
+    test-scenario: "2b"
+spec:
+  workspaces:
+    - name: output
+      emptyDir: {}
+  podTemplate:
+    securityContext:
+      fsGroup: 65532
+  params:
+    - name: url
+      value: https://github.com/tektoncd/pipeline.git
+    - name: revision
+      value: main
+  taskRef:
+    resolver: hub
+    params:
+      - name: type
+        value: tekton
+      - name: kind
+        value: task
+      - name: name
+        value: git-clone
+      - name: version
+        value: "0.9"
+      - name: url
+        value: https://api.hub.tekton.dev
+---
+# ---------------------------------------------------------------------------
+# 2c. url param with trailing slash (should be stripped)
+# Expected: trailing slash removed, no double-slash in API request path
+# ---------------------------------------------------------------------------
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: hub-2c-url-trailing-slash-
+  labels:
+    test-suite: hub-resolver-scenarios
+    test-scenario: "2c"
+spec:
+  workspaces:
+    - name: output
+      emptyDir: {}
+  podTemplate:
+    securityContext:
+      fsGroup: 65532
+  params:
+    - name: url
+      value: https://github.com/tektoncd/pipeline.git
+    - name: revision
+      value: main
+  taskRef:
+    resolver: hub
+    params:
+      - name: type
+        value: artifact
+      - name: kind
+        value: task
+      - name: name
+        value: git-clone
+      - name: version
+        value: "0.9.0"
+      - name: url
+        value: https://artifacthub.io/
+---
+# ---------------------------------------------------------------------------
+# 2d. url param bypasses missing TEKTON_HUB_API
+# Expected: resolves even though TEKTON_HUB_API env var is not set
+# NOTE: api.hub.tekton.dev is deprecated; may fail with DNS error.
+#       The test validates that validation passes (no "please configure
+#       TEKTON_HUB_API" error).
+# ---------------------------------------------------------------------------
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: hub-2d-url-bypass-missing-env-
+  labels:
+    test-suite: hub-resolver-scenarios
+    test-scenario: "2d"
+spec:
+  workspaces:
+    - name: output
+      emptyDir: {}
+  podTemplate:
+    securityContext:
+      fsGroup: 65532
+  params:
+    - name: url
+      value: https://github.com/tektoncd/pipeline.git
+    - name: revision
+      value: main
+  taskRef:
+    resolver: hub
+    params:
+      - name: type
+        value: tekton
+      - name: kind
+        value: task
+      - name: name
+        value: git-clone
+      - name: version
+        value: "0.9"
+      - name: url
+        value: https://api.hub.tekton.dev
+---
+# ---------------------------------------------------------------------------
+# 3a. Version constraint: greater-than-or-equal
+# Expected: resolves latest version >= 0.7.0 and runs
+# ---------------------------------------------------------------------------
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: hub-3a-version-gte-
+  labels:
+    test-suite: hub-resolver-scenarios
+    test-scenario: "3a"
+spec:
+  workspaces:
+    - name: output
+      emptyDir: {}
+  podTemplate:
+    securityContext:
+      fsGroup: 65532
+  params:
+    - name: url
+      value: https://github.com/tektoncd/pipeline.git
+    - name: revision
+      value: main
+  taskRef:
+    resolver: hub
+    params:
+      - name: type
+        value: artifact
+      - name: kind
+        value: task
+      - name: name
+        value: git-clone
+      - name: version
+        value: ">= 0.7.0"
+---
+# ---------------------------------------------------------------------------
+# 3b. Version constraint: range (>= AND <)
+# Expected: resolves latest version >= 0.7.0 AND < 2.0.0
+# ---------------------------------------------------------------------------
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: hub-3b-version-range-
+  labels:
+    test-suite: hub-resolver-scenarios
+    test-scenario: "3b"
+spec:
+  workspaces:
+    - name: output
+      emptyDir: {}
+  podTemplate:
+    securityContext:
+      fsGroup: 65532
+  params:
+    - name: url
+      value: https://github.com/tektoncd/pipeline.git
+    - name: revision
+      value: main
+  taskRef:
+    resolver: hub
+    params:
+      - name: type
+        value: artifact
+      - name: kind
+        value: task
+      - name: name
+        value: git-clone
+      - name: version
+        value: ">= 0.7.0, < 2.0.0"
+---
+# ---------------------------------------------------------------------------
+# 3c. Version constraint: exact (= prefix)
+# Expected: resolves exactly version 0.9.0
+# ---------------------------------------------------------------------------
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: hub-3c-version-exact-
+  labels:
+    test-suite: hub-resolver-scenarios
+    test-scenario: "3c"
+spec:
+  workspaces:
+    - name: output
+      emptyDir: {}
+  podTemplate:
+    securityContext:
+      fsGroup: 65532
+  params:
+    - name: url
+      value: https://github.com/tektoncd/pipeline.git
+    - name: revision
+      value: main
+  taskRef:
+    resolver: hub
+    params:
+      - name: type
+        value: artifact
+      - name: kind
+        value: task
+      - name: name
+        value: git-clone
+      - name: version
+        value: "= 0.9.0"
+---
+# ---------------------------------------------------------------------------
+# 3d. Version constraint: pessimistic (~>)
+# Expected: resolves latest version ~> 0.7 (>= 0.7, < 1.0)
+# ---------------------------------------------------------------------------
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: hub-3d-version-pessimistic-
+  labels:
+    test-suite: hub-resolver-scenarios
+    test-scenario: "3d"
+spec:
+  workspaces:
+    - name: output
+      emptyDir: {}
+  podTemplate:
+    securityContext:
+      fsGroup: 65532
+  params:
+    - name: url
+      value: https://github.com/tektoncd/pipeline.git
+    - name: revision
+      value: main
+  taskRef:
+    resolver: hub
+    params:
+      - name: type
+        value: artifact
+      - name: kind
+        value: task
+      - name: name
+        value: git-clone
+      - name: version
+        value: "~> 0.7"
+---
+# ---------------------------------------------------------------------------
+# 3e. Version constraint with simplified semver
+# Expected: ">= 0.7" matches against x.y.0 versions on Artifact Hub
+# ---------------------------------------------------------------------------
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: hub-3e-constraint-simplified-
+  labels:
+    test-suite: hub-resolver-scenarios
+    test-scenario: "3e"
+spec:
+  workspaces:
+    - name: output
+      emptyDir: {}
+  podTemplate:
+    securityContext:
+      fsGroup: 65532
+  params:
+    - name: url
+      value: https://github.com/tektoncd/pipeline.git
+    - name: revision
+      value: main
+  taskRef:
+    resolver: hub
+    params:
+      - name: type
+        value: artifact
+      - name: kind
+        value: task
+      - name: name
+        value: git-clone
+      - name: version
+        value: ">= 0.7"
+---
+# ---------------------------------------------------------------------------
+# 3f. Version constraint on Tekton Hub
+# Pre-req: TEKTON_HUB_API env var set or tekton-hub-urls in ConfigMap
+# Expected: constraint works; resolved version uses simplified semver (x.y)
+# ---------------------------------------------------------------------------
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: hub-3f-constraint-tekton-
+  labels:
+    test-suite: hub-resolver-scenarios
+    test-scenario: "3f"
+spec:
+  workspaces:
+    - name: output
+      emptyDir: {}
+  podTemplate:
+    securityContext:
+      fsGroup: 65532
+  params:
+    - name: url
+      value: https://github.com/tektoncd/pipeline.git
+    - name: revision
+      value: main
+  taskRef:
+    resolver: hub
+    params:
+      - name: type
+        value: tekton
+      - name: kind
+        value: task
+      - name: name
+        value: git-clone
+      - name: version
+        value: ">= 0.1"
+---
+# ---------------------------------------------------------------------------
+# 3g. Version constraint + url param override (pinning test)
+# Expected: version constraint resolved AND resource fetched from url param,
+#           both operations hit the same hub
+# ---------------------------------------------------------------------------
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: hub-3g-constraint-url-override-
+  labels:
+    test-suite: hub-resolver-scenarios
+    test-scenario: "3g"
+spec:
+  workspaces:
+    - name: output
+      emptyDir: {}
+  podTemplate:
+    securityContext:
+      fsGroup: 65532
+  params:
+    - name: url
+      value: https://github.com/tektoncd/pipeline.git
+    - name: revision
+      value: main
+  taskRef:
+    resolver: hub
+    params:
+      - name: type
+        value: artifact
+      - name: kind
+        value: task
+      - name: name
+        value: git-clone
+      - name: version
+        value: ">= 0.7.0"
+      - name: url
+        value: https://artifacthub.io
+---
+# ---------------------------------------------------------------------------
+# 5a. ERROR: missing required param name
+# Expected: error "missing required hub resolver params: name"
+# ---------------------------------------------------------------------------
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: hub-5a-error-missing-name-
+  labels:
+    test-suite: hub-resolver-scenarios
+    test-scenario: "5a"
+spec:
+  taskRef:
+    resolver: hub
+    params:
+      - name: kind
+        value: task
+      - name: version
+        value: "0.9.0"
+---
+# ---------------------------------------------------------------------------
+# 5b. ERROR: missing required param version
+# Expected: error "missing required hub resolver params: version"
+# ---------------------------------------------------------------------------
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: hub-5b-error-missing-version-
+  labels:
+    test-suite: hub-resolver-scenarios
+    test-scenario: "5b"
+spec:
+  taskRef:
+    resolver: hub
+    params:
+      - name: kind
+        value: task
+      - name: name
+        value: git-clone
+---
+# ---------------------------------------------------------------------------
+# 5c. ERROR: invalid kind
+# Expected: error "failed to resolve catalog name with kind: deployment"
+# ---------------------------------------------------------------------------
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: hub-5c-error-invalid-kind-
+  labels:
+    test-suite: hub-resolver-scenarios
+    test-scenario: "5c"
+spec:
+  taskRef:
+    resolver: hub
+    params:
+      - name: kind
+        value: deployment
+      - name: name
+        value: git-clone
+      - name: version
+        value: "0.9.0"
+---
+# ---------------------------------------------------------------------------
+# 5d. ERROR: invalid type
+# Expected: error "failed to resolve catalog name with type: dockerhub"
+# ---------------------------------------------------------------------------
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: hub-5d-error-invalid-type-
+  labels:
+    test-suite: hub-resolver-scenarios
+    test-scenario: "5d"
+spec:
+  taskRef:
+    resolver: hub
+    params:
+      - name: type
+        value: dockerhub
+      - name: kind
+        value: task
+      - name: name
+        value: git-clone
+      - name: version
+        value: "0.9.0"
+---
+# ---------------------------------------------------------------------------
+# 5e. ERROR: invalid url param (not a URL)
+# Expected: error "url param must be a valid absolute URL: not-a-url"
+# ---------------------------------------------------------------------------
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: hub-5e-error-invalid-url-
+  labels:
+    test-suite: hub-resolver-scenarios
+    test-scenario: "5e"
+spec:
+  taskRef:
+    resolver: hub
+    params:
+      - name: type
+        value: artifact
+      - name: kind
+        value: task
+      - name: name
+        value: git-clone
+      - name: version
+        value: "0.9.0"
+      - name: url
+        value: not-a-url
+---
+# ---------------------------------------------------------------------------
+# 5f. ERROR: file:// scheme rejected
+# Expected: error "url param must be a valid absolute URL: file:///etc/passwd"
+# ---------------------------------------------------------------------------
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: hub-5f-error-file-scheme-
+  labels:
+    test-suite: hub-resolver-scenarios
+    test-scenario: "5f"
+spec:
+  taskRef:
+    resolver: hub
+    params:
+      - name: type
+        value: artifact
+      - name: kind
+        value: task
+      - name: name
+        value: git-clone
+      - name: version
+        value: "0.9.0"
+      - name: url
+        value: "file:///etc/passwd"
+---
+# ---------------------------------------------------------------------------
+# 5g. ERROR: ftp:// scheme rejected
+# Expected: error "url param must be a valid http(s) URL: ftp://example.com"
+# ---------------------------------------------------------------------------
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: hub-5g-error-ftp-scheme-
+  labels:
+    test-suite: hub-resolver-scenarios
+    test-scenario: "5g"
+spec:
+  taskRef:
+    resolver: hub
+    params:
+      - name: type
+        value: artifact
+      - name: kind
+        value: task
+      - name: name
+        value: git-clone
+      - name: version
+        value: "0.9.0"
+      - name: url
+        value: "ftp://example.com"
+---
+# ---------------------------------------------------------------------------
+# 5h. ERROR: resource not found (nonexistent name)
+# Expected: error "requested resource '...' not found on hub"
+# ---------------------------------------------------------------------------
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: hub-5h-error-not-found-
+  labels:
+    test-suite: hub-resolver-scenarios
+    test-scenario: "5h"
+spec:
+  taskRef:
+    resolver: hub
+    params:
+      - name: type
+        value: artifact
+      - name: kind
+        value: task
+      - name: name
+        value: this-task-does-not-exist-anywhere-12345
+      - name: version
+        value: "0.1.0"
+---
+# ---------------------------------------------------------------------------
+# 5i. ERROR: version constraint with no matching version
+# Expected: error "no version found for constraint >= 99.0.0"
+# ---------------------------------------------------------------------------
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: hub-5i-error-no-matching-constraint-
+  labels:
+    test-suite: hub-resolver-scenarios
+    test-scenario: "5i"
+spec:
+  taskRef:
+    resolver: hub
+    params:
+      - name: type
+        value: artifact
+      - name: kind
+        value: task
+      - name: name
+        value: git-clone
+      - name: version
+        value: ">= 99.0.0"
+---
+# ---------------------------------------------------------------------------
+# 5j. ERROR: tekton type with no URL configured at all
+# Pre-req: no TEKTON_HUB_API env var, no tekton-hub-urls in ConfigMap,
+#          no url param
+# Expected: error "please configure TEKTON_HUB_API env variable to use
+#           tekton type"
+# ---------------------------------------------------------------------------
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: hub-5j-error-tekton-no-url-
+  labels:
+    test-suite: hub-resolver-scenarios
+    test-scenario: "5j"
+spec:
+  taskRef:
+    resolver: hub
+    params:
+      - name: type
+        value: tekton
+      - name: kind
+        value: task
+      - name: name
+        value: git-clone
+      - name: version
+        value: "0.9"

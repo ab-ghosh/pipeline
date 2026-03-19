@@ -1,0 +1,24 @@
+# ---------------------------------------------------------------------------
+# 1g. Artifact Hub + pipeline resolution
+# Expected: resolves pipeline from Artifact Hub default pipeline catalog
+# ---------------------------------------------------------------------------
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: hub-1g-artifact-pipeline-
+  labels:
+    test-suite: hub-resolver-scenarios
+    test-scenario: "1g"
+spec:
+  pipelineRef:
+    resolver: hub
+    params:
+      - name: type
+        value: artifact
+      - name: kind
+        value: pipeline
+      - name: name
+        value: buildpacks
+      - name: version
+        value: "0.1.0"
+  # Note: pipeline likely requires params; resolution succeeds even without them

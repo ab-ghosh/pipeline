@@ -1,0 +1,25 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: high-resource-task
+  namespace: test-throttle
+spec:
+  steps:
+  - name: resource-intensive
+    image: busybox
+    computeResources:
+      requests:
+        cpu: "100"      # Request more CPU than available
+        memory: "100Gi"  # Request more memory than available
+    script: |
+      echo "This pod will be pending due to insufficient resources"
+      sleep 300
+---
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: throttled-by-node
+  namespace: test-throttle
+spec:
+  taskRef:
+    name: high-resource-task
