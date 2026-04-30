@@ -23,8 +23,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -202,6 +205,48 @@ func PopulateDefaultParams(ctx context.Context, params []pipelinev1.Param) (map[
 	return paramsMap, nil
 }
 
+// cgnatPrefix covers Carrier-grade NAT (RFC 6598), commonly used for internal
+// VPC routing in cloud environments. IsGlobalUnicast() considers it global,
+// so we block it explicitly.
+var cgnatPrefix = netip.MustParsePrefix("100.64.0.0/10")
+
+func isBlockedIP(addr netip.Addr) bool {
+	addr = addr.Unmap()
+	return !addr.IsGlobalUnicast() || addr.IsPrivate() || cgnatPrefix.Contains(addr)
+}
+
+func safeDialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid address %s: %w", addr, err)
+	}
+
+	ips, err := (&net.Resolver{}).LookupNetIP(ctx, "ip", host)
+	if err != nil {
+		return nil, fmt.Errorf("DNS resolution failed for %s: %w", host, err)
+	}
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("DNS resolution for %s returned no addresses", host)
+	}
+
+	if slices.ContainsFunc(ips, isBlockedIP) {
+		return nil, fmt.Errorf("requests to private/internal IP address for host %s are blocked; set %s to \"false\" in the %s ConfigMap to allow internal requests",
+			host, BlockPrivateIPsKey, configMapName)
+	}
+
+	var lastErr error
+	dialer := net.Dialer{}
+	for _, ip := range ips {
+		conn, dialErr := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+		if dialErr != nil {
+			lastErr = dialErr
+			continue
+		}
+		return conn, nil
+	}
+	return nil, fmt.Errorf("failed to connect to %s: %w", addr, lastErr)
+}
+
 func makeHttpClient(ctx context.Context) (*http.Client, error) {
 	conf := framework.GetResolverConfigFromContext(ctx)
 	timeout, _ := time.ParseDuration(defaultHttpTimeoutValue)
@@ -212,9 +257,38 @@ func makeHttpClient(ctx context.Context) (*http.Client, error) {
 			return nil, fmt.Errorf("error parsing timeout value %s: %w", v, err)
 		}
 	}
-	return &http.Client{
+
+	client := &http.Client{
 		Timeout: timeout,
-	}, nil
+	}
+
+	blockPrivateIPs := true
+	if v, ok := conf[BlockPrivateIPsKey]; ok && v == "false" {
+		blockPrivateIPs = false
+	}
+
+	if blockPrivateIPs {
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.DialContext = safeDialContext
+		client.Transport = transport
+		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return errors.New("stopped after 10 redirects")
+			}
+			host := req.URL.Hostname()
+			ips, err := (&net.Resolver{}).LookupNetIP(req.Context(), "ip", host)
+			if err != nil {
+				return fmt.Errorf("DNS resolution failed for redirect target %s: %w", host, err)
+			}
+			if slices.ContainsFunc(ips, isBlockedIP) {
+				return fmt.Errorf("redirect to private/internal IP address for host %s is blocked; set %s to \"false\" in the %s ConfigMap to allow internal requests",
+					host, BlockPrivateIPsKey, configMapName)
+			}
+			return nil
+		}
+	}
+
+	return client, nil
 }
 
 // compareSHA compares two hexadecimal SHA strings in constant time.
